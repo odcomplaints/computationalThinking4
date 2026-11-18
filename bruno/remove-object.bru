@@ -1,0 +1,15 @@
+meta {
+  name: Remove object
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/objects/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: note-bruno
+}

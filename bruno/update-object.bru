@@ -1,0 +1,24 @@
+meta {
+  name: Update object
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/objects/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: note-bruno
+}
+
+body:json {
+  {
+    "x": 360,
+    "y": 360,
+    "text": "Moved and edited via Bruno",
+    "bold": true
+  }
+}

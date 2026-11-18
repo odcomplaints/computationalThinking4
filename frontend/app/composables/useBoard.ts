@@ -1,5 +1,7 @@
 import type { BoardObject, ObjectTemplate, Rect, StyleChanges, TextObject } from '~/types/canvas-object'
 
+const API_URL = 'http://localhost:3001/api/objects'
+
 const TEXT_DEFAULTS = { text: '', fontSize: FONT_SIZES.M, bold: false }
 
 // Starting attributes of a new object, per variant. Only variants with text get text attributes.
@@ -11,36 +13,42 @@ const DEFAULTS: Record<BoardObject['type'], Rect & Partial<TextObject>> = {
 
 // The board state is the single source of truth for which objects exist and what they look like.
 // Components only read it; every change goes through one of the functions below.
+// Each change is applied locally right away and then sent to the backend, which stores it.
 export function useBoard() {
-  const objects = useState<BoardObject[]>('objects', () => [
-    { id: 'note-1', type: 'sticky-note', x: 120, y: 120, width: 192, height: 192, text: 'Hello, board!', color: 'yellow', fontSize: FONT_SIZES.M, bold: false },
-    { id: 'note-2', type: 'sticky-note', x: 360, y: 120, width: 192, height: 192, text: 'Drag me around', color: 'pink', fontSize: FONT_SIZES.M, bold: false },
-    { id: 'text-1', type: 'text', x: 600, y: 120, width: 240, height: 72, text: 'Just some text', fontSize: FONT_SIZES.M, bold: false },
-    { id: 'circle-1', type: 'circle', x: 600, y: 240, width: 144, height: 144, color: 'blue' },
-  ])
+  const objects = useState<BoardObject[]>('objects', () => [])
+
+  async function loadObjects() {
+    objects.value = await $fetch<BoardObject[]>(API_URL)
+  }
 
   function addObject(template: ObjectTemplate, centerX: number, centerY: number) {
     const defaults = DEFAULTS[template.type]
     const id = crypto.randomUUID()
     const x = snapToGrid(centerX - defaults.width / 2)
     const y = snapToGrid(centerY - defaults.height / 2)
-    objects.value = [...objects.value, { ...defaults, ...template, id, x, y } as BoardObject]
+    const object = { ...defaults, ...template, id, x, y } as BoardObject
+    objects.value = [...objects.value, object]
+    $fetch(API_URL, { method: 'POST', body: object })
     return id
   }
 
   // Works for every variant: the copy keeps all attributes except the id.
   function addCopy(source: BoardObject) {
     const id = crypto.randomUUID()
-    objects.value = [...objects.value, { ...source, id }]
+    const object = { ...source, id }
+    objects.value = [...objects.value, object]
+    $fetch(API_URL, { method: 'POST', body: object })
     return id
   }
 
   function removeObject(id: string) {
     objects.value = objects.value.filter(object => object.id !== id)
+    $fetch(`${API_URL}/${id}`, { method: 'DELETE' })
   }
 
   function updateObject(id: string, changes: Partial<Rect> & StyleChanges & { text?: string }) {
     objects.value = objects.value.map(object => (object.id === id ? ({ ...object, ...changes } as BoardObject) : object))
+    $fetch(`${API_URL}/${id}`, { method: 'PATCH', body: changes })
   }
 
   function moveObject(id: string, x: number, y: number) {
@@ -59,5 +67,5 @@ export function useBoard() {
     updateObject(id, changes)
   }
 
-  return { objects: readonly(objects), addObject, addCopy, removeObject, moveObject, resizeObject, updateText, updateStyle }
+  return { objects: readonly(objects), loadObjects, addObject, addCopy, removeObject, moveObject, resizeObject, updateText, updateStyle }
 }
