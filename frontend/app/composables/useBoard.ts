@@ -1,3 +1,4 @@
+import type { Board } from '~/types/board'
 import type { BoardObject, ObjectTemplate, Rect, StyleChanges, TextObject } from '~/types/canvas-object'
 
 const TEXT_DEFAULTS = { text: '', fontSize: FONT_SIZES.M, bold: false }
@@ -16,20 +17,35 @@ type ObjectChanges = Partial<Rect> & StyleChanges & { text?: string }
 const SAVE_DELAY = 300
 const pendingChanges = new Map<string, { changes: ObjectChanges; timer: ReturnType<typeof setTimeout> }>()
 
-// The board state is the single source of truth for which objects exist and what they look like.
+// The board state is the single source of truth for which board is open and which objects it has.
 // Components only read it; every change goes through one of the functions below,
 // which update the state right away and then tell the backend.
 export function useBoard() {
   const api = $fetch.create({ baseURL: useRuntimeConfig().public.apiBase })
+  const board = useState<Board | null>('board', () => null)
   const objects = useState<BoardObject[]>('objects', () => [])
+  const objectsUrl = () => `/boards/${board.value!.id}/objects`
 
-  async function load() {
-    objects.value = await api<BoardObject[]>('/objects')
+  // An unknown board leaves board empty, so the page can say so.
+  async function load(id: string) {
+    try {
+      const [loadedBoard, loadedObjects] = await Promise.all([
+        api<Board>(`/boards/${id}`),
+        api<BoardObject[]>(`/boards/${id}/objects`),
+      ])
+      board.value = loadedBoard
+      objects.value = loadedObjects
+    }
+    catch (error) {
+      if ((error as { statusCode?: number }).statusCode !== 404) throw error
+      board.value = null
+      objects.value = []
+    }
   }
 
   function insert(object: BoardObject) {
     objects.value = [...objects.value, object]
-    api('/objects', { method: 'POST', body: object })
+    api(objectsUrl(), { method: 'POST', body: object })
   }
 
   function addObject(template: ObjectTemplate, centerX: number, centerY: number) {
@@ -52,7 +68,7 @@ export function useBoard() {
     clearTimeout(pendingChanges.get(id)?.timer)
     pendingChanges.delete(id)
     objects.value = objects.value.filter(object => object.id !== id)
-    api(`/objects/${id}`, { method: 'DELETE' })
+    api(`${objectsUrl()}/${id}`, { method: 'DELETE' })
   }
 
   function updateObject(id: string, changes: ObjectChanges) {
@@ -65,9 +81,11 @@ export function useBoard() {
     const pending = pendingChanges.get(id)
     clearTimeout(pending?.timer)
     const merged = { ...pending?.changes, ...changes }
+    // The url is taken now, so the save still reaches this board if another one is opened meanwhile.
+    const url = `${objectsUrl()}/${id}`
     const timer = setTimeout(() => {
       pendingChanges.delete(id)
-      api(`/objects/${id}`, { method: 'PATCH', body: merged })
+      api(url, { method: 'PATCH', body: merged })
     }, SAVE_DELAY)
     pendingChanges.set(id, { changes: merged, timer })
   }
@@ -88,5 +106,5 @@ export function useBoard() {
     updateObject(id, changes)
   }
 
-  return { objects: readonly(objects), load, addObject, addCopy, removeObject, moveObject, resizeObject, updateText, updateStyle }
+  return { board: readonly(board), objects: readonly(objects), load, addObject, addCopy, removeObject, moveObject, resizeObject, updateText, updateStyle }
 }
